@@ -1,0 +1,147 @@
+plugins {
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'maven-publish'
+}
+
+// 1. Define the build number incrementer function
+def getAndIncrementBuildNumber() {
+	def buildNumberFile = file('build.number')
+	def currentBuild = 0
+	if (buildNumberFile.exists()) {
+		try {
+			currentBuild = buildNumberFile.text.trim().toInteger()
+		} catch (Exception e) {
+			currentBuild = 0
+		}
+	}
+	def nextBuild = currentBuild + 1
+	buildNumberFile.text = nextBuild.toString()
+	return nextBuild
+}
+
+// 2. Safely capture the current base version from your gradle.properties (e.g., 1.0.0)
+def baseVersion = project.property('version')
+def currentBuild = getAndIncrementBuildNumber()
+
+// 3. OVERWRITE the global project version string into your exact x.x.x.buildNumber format
+version = "${baseVersion}.${currentBuild}"
+
+// 4. Expose the raw number as an extra property just in case other tasks need it raw
+ext.buildNumber = currentBuild
+
+
+repositories {
+	// Add repositories to retrieve artifacts from in here.
+	// You should only use this when depending on other mods because
+	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
+	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
+	// for more information about repositories.
+	mavenCentral()
+	maven { url 'https://meteorclient.com' }
+	maven { url 'https://maven.2b2t.vc/releases' }         // Hosts community Baritone builds
+	maven { url 'https://impactdevelopment.github.io/maven/' }
+	maven { url 'https://jitpack.io' }
+	maven { url 'https://wurstclient.net' }
+	flatDir {
+		dirs 'libs'
+	}
+
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"theroboticroadies" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+fabricApi {
+	configureDataGeneration {
+		client = true
+		modId = "theroboticroadies"
+	}
+}
+
+dependencies {
+	// To change the versions see the gradle.properties file
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings loom.officialMojangMappings()
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	// Fabric API. This is technically optional, but you probably want it anyway.
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	//modImplementation "baritone:baritone-api:${project.minecraft_version}"
+	//implementation 'com.meteorclient:baritone-api:1.21.11'
+	//implementation 'cabaletta:baritone-api:1.21.11'
+	//modImplementation 'com.github.cabaletta:baritone:v1.20.0'
+	//modImplementation 'net.wurstclient:baritone-api-fabric:1.21.11'
+	//modImplementation 'com.meteorclient:baritone-api:1.21.11'
+//	modImplementation "app.listener:baritone-api:${project.minecraft_version}-SNAPSHOT"
+	modImplementation files('libs/baritone-api-fabric-1.17.0.jar')
+}
+// 1. Capture the properties as local variables OUTSIDE the task configuration block
+def targetVersion = project.version.toString()
+def targetBuildNumber = project.ext.buildNumber.toString()
+
+processResources {
+	// 2. Read from the local variables instead of querying the dynamic 'project' object directly
+	inputs.property "version", targetVersion
+	inputs.property "buildNumber", targetBuildNumber
+
+	filesMatching("fabric.mod.json") {
+		expand(
+				"version": targetVersion,
+				"buildNumber": targetBuildNumber
+		)
+	}
+}
+
+
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+	// if it is present.
+	// If you remove this line, sources will not be generated.
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	// Keep the standard naming scheme since 'version' now holds the full string format
+	from("LICENSE") {
+		rename { "${it}_$projectName"}
+	}
+}
+
+
+
+
+// configure the maven publication
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+
+	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
+	repositories {
+		// Add repositories to publish to here.
+		// Notice: This block does NOT have the same function as the block in the top level.
+		// The repositories here will be used for publishing your artifact, not for
+		// retrieving dependencies.
+	}
+}
